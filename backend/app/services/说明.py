@@ -105,9 +105,22 @@ def 心跳列表(租约号: str | None = None) -> list:
 
 
 def 回收列表() -> list:
+    """台面轨读集合：只返回回收匣行，底账指纹绝不并入。"""
     conn = 连接()
     try:
         return [dict(r) for r in conn.execute("SELECT * FROM 回收匣 ORDER BY 入匣时 DESC").fetchall()]
+    finally:
+        conn.close()
+
+
+def 重入账列表() -> list:
+    """底账轨读集合：重入指纹只读归档，与台面列表严禁并轨。"""
+    conn = 连接()
+    try:
+        return [
+            dict(r)
+            for r in conn.execute("SELECT * FROM 匣重入账 ORDER BY 时刻 DESC").fetchall()
+        ]
     finally:
         conn.close()
 

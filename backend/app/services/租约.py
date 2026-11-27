@@ -86,9 +86,11 @@ def 激活(租约号: str) -> dict:
         conn.close()
 
 
-def 标记回收(租约号: str) -> dict:
+def 标记回收(租约号: str, conn=None) -> dict:
     租约号 = 校验.租约号(租约号)
-    conn = 连接()
+    自有 = conn is None
+    if 自有:
+        conn = 连接()
     try:
         row = conn.execute("SELECT * FROM 租约 WHERE 租约号=?", (租约号,)).fetchone()
         if not row:
@@ -96,16 +98,24 @@ def 标记回收(租约号: str) -> dict:
         if row["状态"] == "已回收":
             return dict(row)
         池键 = row["池键"]
-        conn.execute(
-            "UPDATE 租约 SET 状态='已回收', 更新时=? WHERE 租约号=?",
+        # 条件 UPDATE：两路扫描同时到达时只有一路 rowcount=1，池格只释一次。
+        cur = conn.execute(
+            "UPDATE 租约 SET 状态='已回收', 更新时=? WHERE 租约号=? AND 状态!='已回收'",
             (校验.此刻(), 租约号),
         )
-        资源.释放一格(池键)
-        _留痕(conn, "租约已回收", 租约号, 池键)
-        conn.commit()
+        if cur.rowcount == 1:
+            资源.释放一格(池键, conn=conn)
+            _留痕(conn, "租约已回收", 租约号, 池键)
+        if 自有:
+            conn.commit()
         return 说明.租约一条(租约号)
+    except Exception:
+        if 自有:
+            conn.rollback()
+        raise
     finally:
-        conn.close()
+        if 自有:
+            conn.close()
 
 
 def 扫描逾期() -> list:
@@ -115,25 +125,27 @@ def 扫描逾期() -> list:
         宽限 = int(规.get("心跳宽限分钟", "15"))
     except ValueError:
         宽限 = 15
+    # 只读连接必须先关闭：它持有 SHARED 锁，若跨着写事务不释放，
+    # 两路扫描会触发 SQLite 死锁检测立即报 database is locked。
     conn = 连接()
-    out = []
     try:
         rows = conn.execute(
             "SELECT * FROM 租约 WHERE 状态 IN ('生效中','已续约')"
         ).fetchall()
-        for row in rows:
-            if not 校验.是否到期(row["到期时刻"], 宽限):
-                continue
-            from app.services import 回收
-
-            item = 回收.入匣(
-                {
-                    "租约号": row["租约号"],
-                    "原因": "到期未续",
-                }
-            )
-            标记回收(row["租约号"])
-            out.append(item)
-        return out
+        逾期 = [dict(r) for r in rows if 校验.是否到期(r["到期时刻"], 宽限)]
     finally:
         conn.close()
+
+    out = []
+    from app.services import 回收
+
+    for row in 逾期:
+        item = 回收.入匣(
+            {
+                "租约号": row["租约号"],
+                "原因": "到期未续",
+            }
+        )
+        标记回收(row["租约号"])
+        out.append(item)
+    return out

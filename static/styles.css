@@ -104,6 +104,8 @@ th { color: var(--石板浅); font-weight: 600; }
 .徽章.已回收 { background: #fee2e2; color: #b91c1c; }
 .徽章.待回收 { background: #ffedd5; color: #c2410c; }
 .徽章.已作废 { background: #f1f5f9; color: #64748b; }
+.徽章.折叠 { background: #ede9fe; color: #6d28d9; }
+.淡 { color: #94a3b8; }
 .按钮 {
   background: var(--石板);
   color: #fff;
@@ -199,4 +201,4 @@ pre.输出 {
   .侧栏 { flex-direction: row; flex-wrap: wrap; padding: 12px; }
   .侧栏 nav { flex-direction: row; flex-wrap: wrap; }
   .登录壳 { grid-template-columns: 1fr; }
-}
+}

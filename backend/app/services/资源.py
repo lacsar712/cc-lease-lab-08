@@ -106,8 +106,10 @@ def 预占一格(池键: str) -> None:
         conn.close()
 
 
-def 释放一格(池键: str) -> None:
-    conn = 连接()
+def 释放一格(池键: str, conn=None) -> None:
+    自有 = conn is None
+    if 自有:
+        conn = 连接()
     try:
         row = conn.execute("SELECT 已占 FROM 资源池 WHERE 池键=?", (池键,)).fetchone()
         if not row:
@@ -117,6 +119,8 @@ def 释放一格(池键: str) -> None:
             "UPDATE 资源池 SET 已占=?, 更新时=? WHERE 池键=?",
             (已占, 校验.此刻(), 池键),
         )
-        conn.commit()
+        if 自有:
+            conn.commit()
     finally:
-        conn.close()
+        if 自有:
+            conn.close()

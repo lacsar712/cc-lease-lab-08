@@ -1,3 +1,10 @@
+function 折叠格(r) {
+  const 次数 = Number(r.重入次数) || 0;
+  if (次数 <= 0) return '<span class="淡">—</span>';
+  return '<span class="徽章 折叠">' +
+    租约台.安全文本(r.重入标记 || '重入已折叠') + ' ×' + 次数 + '</span>';
+}
+
 async function 刷新回收() {
   const rows = await 租约台.getJSON('/api/回收');
   const tb = document.getElementById('回收表');
@@ -15,6 +22,7 @@ async function 刷新回收() {
       '<td>' + 租约台.安全文本(r.租约号) + '</td>' +
       '<td>' + 租约台.安全文本(r.原因) + '</td>' +
       '<td>' + 租约台.状态徽章(r.状态) + '</td>' +
+      '<td>' + 折叠格(r) + '</td>' +
       '<td>' + 租约台.安全文本(租约台.格式化时刻(r.入匣时)) + '</td>' +
       '<td class="工具条">' + ops + '</td>';
     tb.appendChild(tr);

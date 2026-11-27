@@ -53,8 +53,21 @@ CREATE TABLE IF NOT EXISTS 回收匣 (
   状态 TEXT NOT NULL DEFAULT '待回收',
   入匣时 TEXT NOT NULL,
   处置时 TEXT NOT NULL DEFAULT '',
-  FOREIGN KEY (租约号) REFERENCES 租约(租约号),
-  FOREIGN KEY (池键) REFERENCES 资源池(池键)
+  重入次数 INTEGER NOT NULL DEFAULT 0,
+  重入标记 TEXT NOT NULL DEFAULT ''
+);
+-- 唯一索引由 _迁移旧库 在折叠完历史重复行后再建，避免旧库建索引即冲突。
+-- 底账轨：重入指纹只读归档，不参与台面列表与待回收计数。
+CREATE TABLE IF NOT EXISTS 匣重入账 (
+  指纹号 TEXT PRIMARY KEY,
+  回收号 TEXT NOT NULL,
+  租约号 TEXT NOT NULL,
+  池键 TEXT NOT NULL,
+  租户 TEXT NOT NULL,
+  原因 TEXT NOT NULL DEFAULT '',
+  时刻 TEXT NOT NULL,
+  处置 TEXT NOT NULL DEFAULT '拒回刷',
+  FOREIGN KEY (租约号) REFERENCES 租约(租约号)
 );
 CREATE TABLE IF NOT EXISTS 互证报告 (
   报告号 INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -238,6 +251,52 @@ def 初始化库() -> None:
                 ),
             )
             _留痕(conn, "系统播种", 详情="初始资源池与样例租约")
+        _迁移旧库(conn)
         conn.commit()
     finally:
         conn.close()
+
+
+def _迁移旧库(conn) -> None:
+    """旧版库补台面折叠列与底账表；历史重复待回收先按入匣时折叠为一行，最后才建唯一索引。"""
+    列 = {r["name"] for r in conn.execute("PRAGMA table_info(回收匣)").fetchall()}
+    if "重入次数" not in 列:
+        conn.execute("ALTER TABLE 回收匣 ADD COLUMN 重入次数 INTEGER NOT NULL DEFAULT 0")
+    if "重入标记" not in 列:
+        conn.execute("ALTER TABLE 回收匣 ADD COLUMN 重入标记 TEXT NOT NULL DEFAULT ''")
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS 匣重入账 (
+          指纹号 TEXT PRIMARY KEY,
+          回收号 TEXT NOT NULL,
+          租约号 TEXT NOT NULL,
+          池键 TEXT NOT NULL,
+          租户 TEXT NOT NULL,
+          原因 TEXT NOT NULL DEFAULT '',
+          时刻 TEXT NOT NULL,
+          处置 TEXT NOT NULL DEFAULT '拒回刷'
+        )"""
+    )
+    # 旧库若已存在同租约多行待回收（缺陷现场），建唯一索引前先折叠。
+    重复 = conn.execute(
+        """SELECT 租约号, COUNT(*) AS c FROM 回收匣
+           WHERE 状态='待回收' GROUP BY 租约号 HAVING c > 1"""
+    ).fetchall()
+    for r in 重复:
+        rows = conn.execute(
+            """SELECT 回收号 FROM 回收匣 WHERE 租约号=? AND 状态='待回收'
+               ORDER BY 入匣时 ASC""",
+            (r["租约号"],),
+        ).fetchall()
+        留用 = rows[0]["回收号"]
+        for dup in rows[1:]:
+            conn.execute("UPDATE 回收匣 SET 状态='已作废', 处置时=入匣时 WHERE 回收号=?",
+                         (dup["回收号"],))
+            conn.execute(
+                "UPDATE 回收匣 SET 重入次数=重入次数+1, 重入标记='重入已折叠' WHERE 回收号=?",
+                (留用,),
+            )
+    # 折叠完成、保证每租约至多一行待回收后，再建部分唯一索引兜底并发。
+    conn.execute(
+        """CREATE UNIQUE INDEX IF NOT EXISTS 匣_租约待回收唯一
+           ON 回收匣(租约号) WHERE 状态='待回收'"""
+    )

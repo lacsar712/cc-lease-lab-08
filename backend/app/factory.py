@@ -177,6 +177,11 @@ def create_app() -> FastAPI:
     def api_回收():
         return 说明.回收列表()
 
+    @app.get("/api/回收/重入账")
+    def api_回收重入账():
+        # 底账轨只读归档：与台面 /api/回收 读集合分流，严禁并轨。
+        return 说明.重入账列表()
+
     @app.post("/api/回收/入匣")
     async def api_回收入匣(request: Request):
         body = await request.json()
